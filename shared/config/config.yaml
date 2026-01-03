@@ -1,0 +1,232 @@
+# PTZ Camera System Configuration
+
+rtsp:
+  primary_url: "${RTSP_URL}"
+  backup_url: "${RTSP_BACKUP_URL}"
+  reconnect_delay_seconds: 5
+  max_reconnect_attempts: 10
+  frame_buffer_size: 30
+  decode_threads: 2
+
+ptz:
+  onvif:
+    host: "${PTZ_ONVIF_HOST}"
+    port: ${PTZ_ONVIF_PORT}
+    username: "${PTZ_USERNAME}"
+    password: "${PTZ_PASSWORD}"
+    use_digest_auth: ${PTZ_USE_DIGEST_AUTH}
+    timeout_seconds: 10
+  
+  control:
+    move_rate_limit_ms: ${PTZ_MOVE_RATE_LIMIT_MS}
+    hysteresis_pixels: ${PTZ_HYSTERESIS_PIXELS}
+    pan_speed: ${PTZ_PAN_SPEED}
+    tilt_speed: ${PTZ_TILT_SPEED}
+    zoom_step: ${PTZ_ZOOM_STEP}
+    default_preset: ${PTZ_DEFAULT_PRESET}
+  
+  presets:
+    - id: 1
+      name: "entrance_wide"
+      description: "Main entrance wide view"
+    - id: 2
+      name: "parking_lot"
+      description: "Parking lot overview"
+    - id: 3
+      name: "exit_lane"
+      description: "Exit lane monitoring"
+  
+  idle_behavior:
+    enabled: true
+    timeout_seconds: 30
+    return_to_preset: 1
+    sweep_enabled: true
+    sweep_interval_seconds: 60
+
+detection:
+  model_path: "${YOLO_MODEL_PATH}"
+  confidence_threshold: ${YOLO_CONFIDENCE_THRESHOLD}
+  iou_threshold: ${YOLO_IOU_THRESHOLD}
+  device: "${YOLO_DEVICE}"
+  
+  classes:
+    enabled:
+      - car
+      - truck
+      - bus
+      - motorcycle
+    
+  input_size:
+    width: 640
+    height: 640
+  
+  batch_size: 1
+  half_precision: true  # FP16 for faster inference on GPU
+
+tracking:
+  type: "${TRACKER_TYPE}"
+  max_age: ${TRACKER_MAX_AGE}
+  min_hits: ${TRACKER_MIN_HITS}
+  iou_threshold: ${TRACKER_IOU_THRESHOLD}
+  
+  bytetrack:
+    track_thresh: 0.6
+    track_buffer: 30
+    match_thresh: 0.8
+  
+  deepsort:
+    max_cosine_distance: 0.3
+    nn_budget: 100
+    max_iou_distance: 0.7
+
+prioritization:
+  strategy: "weighted"  # Options: proximity, roi, weighted
+  
+  weights:
+    proximity: 0.4
+    roi: 0.3
+    speed: 0.2
+    novelty: 0.1
+  
+  roi_zones:
+    - name: "primary_lane"
+      polygon: [[100, 200], [500, 200], [500, 600], [100, 600]]
+      weight: 1.5
+    - name: "secondary_lane"
+      polygon: [[600, 200], [900, 200], [900, 600], [600, 600]]
+      weight: 1.0
+  
+  min_target_size_pixels: 100
+  max_targets_per_frame: 3
+
+anpr:
+  engine: "${ANPR_ENGINE}"
+  languages: "${ANPR_LANGUAGES}"
+  min_confidence: ${ANPR_MIN_CONFIDENCE}
+  min_plate_height_pixels: ${ANPR_MIN_PLATE_HEIGHT}
+  
+  preprocessing:
+    grayscale: true
+    denoise: true
+    contrast_enhance: true
+    sharpen: false
+  
+  plate_formats:
+    - pattern: "^[A-Z]{2,3}-[0-9]{3,4}$"
+      description: "Standard format ABC-1234"
+    - pattern: "^[0-9]{2}[A-Z]{2}[0-9]{4}$"
+      description: "Numeric format 12AB3456"
+  
+  capture:
+    zoom_target_plate_height: 200
+    stability_frames: 5
+    max_capture_attempts: 3
+
+events:
+  message_bus: "redis"  # Options: redis, kafka, nats
+  
+  redis:
+    host: "${REDIS_HOST}"
+    port: ${REDIS_PORT}
+    db: ${REDIS_DB}
+    password: "${REDIS_PASSWORD}"
+    stream_max_len: 10000
+  
+  topics:
+    detections: "ptz.detections"
+    tracking: "ptz.tracking"
+    ptz_commands: "ptz.commands"
+    ptz_status: "ptz.status"
+    anpr_requests: "ptz.anpr.requests"
+    anpr_results: "ptz.anpr.results"
+    system_events: "ptz.system"
+
+storage:
+  database:
+    engine: "postgresql"
+    host: "${POSTGRES_HOST}"
+    port: ${POSTGRES_PORT}
+    database: "${POSTGRES_DB}"
+    username: "${POSTGRES_USER}"
+    password: "${POSTGRES_PASSWORD}"
+    pool_size: 10
+    max_overflow: 20
+  
+  object_storage:
+    type: "minio"  # Options: minio, s3
+    endpoint: "${MINIO_ENDPOINT}"
+    access_key: "${MINIO_ACCESS_KEY}"
+    secret_key: "${MINIO_SECRET_KEY}"
+    bucket: "${MINIO_BUCKET}"
+    secure: ${MINIO_SECURE}
+  
+  retention:
+    media_days: ${MEDIA_RETENTION_DAYS}
+    events_days: ${EVENT_RETENTION_DAYS}
+    cleanup_interval_hours: ${CLEANUP_INTERVAL_HOURS}
+  
+  media:
+    save_plate_crops: true
+    save_full_frames: false
+    save_video_clips: false
+    video_clip_duration_seconds: 10
+
+logging:
+  level: "${LOG_LEVEL}"
+  format: "${LOG_FORMAT}"  # Options: json, text
+  
+  outputs:
+    - type: "console"
+      enabled: true
+    - type: "file"
+      enabled: true
+      path: "/var/log/ptz-camera/app.log"
+      rotation: "100MB"
+      retention: "30 days"
+
+monitoring:
+  prometheus:
+    enabled: ${METRICS_ENABLED}
+    port: ${PROMETHEUS_PORT}
+    path: "/metrics"
+  
+  health_checks:
+    interval_seconds: 30
+    timeout_seconds: 10
+  
+  metrics:
+    - detections_total
+    - tracking_active_tracks
+    - ptz_moves_total
+    - anpr_success_rate
+    - frame_processing_latency
+    - event_queue_size
+
+ui:
+  host: "${UI_HOST}"
+  port: ${UI_PORT}
+  
+  features:
+    live_view: true
+    ptz_manual_control: true
+    event_search: true
+    statistics_dashboard: true
+  
+  stream:
+    fps: 10
+    quality: 80
+    format: "mjpeg"
+
+privacy:
+  face_masking:
+    enabled: false
+    model_path: "/app/models/face_detection.xml"
+    blur_strength: 50
+  
+  data_anonymization:
+    enabled: false
+    mask_plate_after_days: 7
+  
+  audit_logging:
+    enabled: true
+    log_all_access: true

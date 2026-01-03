@@ -1,0 +1,161 @@
+version: '3.8'
+
+services:
+  # Redis for message bus and caching
+  redis:
+    image: redis:7-alpine
+    container_name: ptz-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # PostgreSQL for metadata storage
+  postgres:
+    image: postgres:15-alpine
+    container_name: ptz-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ptz_camera}
+      POSTGRES_USER: ${POSTGRES_USER:-ptz_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # MinIO for object storage
+  minio:
+    image: minio/minio:latest
+    container_name: ptz-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+
+  # PTZ Controller Service
+  ptz-controller:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ptz-controller
+    container_name: ptz-controller
+    environment:
+      - PTZ_CONFIG_PATH=/app/shared/config/config.yaml
+    env_file:
+      - .env
+    volumes:
+      - ./shared:/app/shared
+      - ./services/ptz-controller:/app/services/ptz-controller
+    depends_on:
+      - redis
+    restart: unless-stopped
+    network_mode: host  # For ONVIF camera access
+
+  # Vision Service
+  vision-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.vision-service
+    container_name: vision-service
+    environment:
+      - PTZ_CONFIG_PATH=/app/shared/config/config.yaml
+    env_file:
+      - .env
+    volumes:
+      - ./shared:/app/shared
+      - ./services/vision-service:/app/services/vision-service
+      - ./models:/app/models
+      - vision-data:/app/data
+    depends_on:
+      - redis
+      - ptz-controller
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ANPR Service
+  anpr-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.anpr-service
+    container_name: anpr-service
+    environment:
+      - PTZ_CONFIG_PATH=/app/shared/config/config.yaml
+    env_file:
+      - .env
+    volumes:
+      - ./shared:/app/shared
+      - ./services/anpr-service:/app/services/anpr-service
+      - vision-data:/app/data
+    depends_on:
+      - redis
+      - vision-service
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Storage Service
+  storage-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.storage-service
+    container_name: storage-service
+    environment:
+      - PTZ_CONFIG_PATH=/app/shared/config/config.yaml
+    env_file:
+      - .env
+    volumes:
+      - ./shared:/app/shared
+      - ./services/storage-service:/app/services/storage-service
+      - vision-data:/app/data
+    depends_on:
+      - redis
+      - postgres
+      - minio
+    restart: unless-stopped
+
+  # UI Service
+  ui-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ui-service
+    container_name: ui-service
+    environment:
+      - PTZ_CONFIG_PATH=/app/shared/config/config.yaml
+    env_file:
+      - .env
+    ports:
+      - "${UI_PORT:-8080}:8080"
+    volumes:
+      - ./shared:/app/shared
+      - ./services/ui-service:/app/services/ui-service
+      - vision-data:/app/data
+    depends_on:
+      - redis
+      - postgres
+      - minio
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  postgres-data:
+  minio-data:
+  vision-data:
