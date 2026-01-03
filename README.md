@@ -53,12 +53,12 @@ Production-grade system for automated vehicle detection, PTZ camera control, and
 
 1. **Clone and setup:**
    ```bash
-   cd C:\Users\A.M\.gemini\antigravity\scratch\ptz-camera-system
+  
    ```
 
 2. **Copy environment configuration:**
    ```bash
-   copy .env.example .env
+   copy .env
    ```
 
 3. **Edit `.env` file with your camera details:**
